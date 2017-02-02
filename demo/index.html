@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, minimum-scale=1, initial-scale=1, user-scalable=yes">
+
+    <title>offthread-image demo</title>
+
+    <script src="../../webcomponentsjs/webcomponents-lite.js"></script>
+    <link rel="import" href="../offthread-image.html">
+
+    <style>
+      offthread-image {
+        width: 285px;
+        height: 200px;
+        background: #ddd;
+      }
+    </style>
+  </head>
+  <body>
+    <h3>Sizing contain</h3>
+    <offthread-image src="demo.jpg" sizing="contain"></offthread-image>
+
+    <h3>Sizing cover</h3>
+    <offthread-image src="demo.jpg" sizing="cover"></offthread-image>
+  </body>
+</html>

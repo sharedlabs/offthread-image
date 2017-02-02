@@ -1,0 +1,267 @@
+<link rel="import" href="../polymer/polymer.html">
+
+<!--
+`offthread-image`
+
+@demo demo/index.html 
+-->
+<dom-module id="offthread-image">
+  <template>
+    <style>
+      :host {
+        display: inline-block;
+      }
+    </style>
+
+  </template>
+</dom-module>
+
+<script>
+(function() {
+  'use strict';
+
+  // requestIdleCallback polyfill
+  const requestIdleCallback = window.requestIdleCallback || function(callback) {
+    requestAnimationFrame(_ => {
+      callback({timeRemaining: _ => Infinity});
+    });
+  };
+
+  // Whether this element can do its magic or fallback to an image.
+  const supported = typeof createImageBitmap !== 'undefined' && typeof fetch !== 'undefined';
+  let instances, worker;
+
+  if (supported) {
+    instances = [];
+  }
+
+  Polymer({
+
+    is: 'offthread-image',
+
+    properties: {
+
+      src: {
+        type: String,
+        reflectToAttribute: true
+      },
+
+      /**
+       * Sets a sizing option for the image.  Valid values are `contain` (full
+       * aspect ratio of the image is contained within the element and
+       * letterboxed) or `cover` (image is cropped in order to fully cover the
+       * bounds of the element), or `null` (default: image takes natural size).
+       */
+      sizing: {
+        type: String,
+        value: null
+      },
+
+      _worker: {
+        type: Object,
+        value: _ => {
+          return worker || null;
+        }
+      },
+
+      _imageElement: Object,
+
+      _ironImageLoaded: {
+        type: Boolean,
+        value: false
+      }
+
+    },
+
+    observers: [
+      '_srcChanged(src, isAttached)'
+    ],
+
+    created() {
+      // Initialize the worker just once.
+      if (supported && !worker) {
+        worker = new Worker(this.resolveUrl('offthread-image-worker.js'));
+
+        worker.onmessage = function(event) {
+          instances[event.data.instanceIndex]._handleIncomingMessage(event.data);
+        };
+      }
+    },
+
+    attached() {
+      if (supported) {
+        instances.push(this);
+      }
+    },
+
+    detached() {
+      if (supported) {
+        instances.splice(instances.indexOf(this), 1);
+      }
+    },
+
+    /**
+     * Handle messages from the image worker.
+     */
+    _handleIncomingMessage(message) {
+      if (message.error) {
+        throw new Error(message.error);
+      }
+
+      if (message.imageBitmap) {
+        this._renderCanvas(message.imageBitmap);
+      } else if (message.base64) {
+        this._renderImage(message.base64);
+      }
+    },
+
+    _srcChanged(src) {
+      if (!src || !this.isAttached) {
+        return;
+      }
+
+      if (this._imageElement) {
+        this._imageElement.remove();
+      }      
+
+      if (supported) {
+        fetch(src).then(response => {
+          if (!response) {
+            throw new Error('404. Not found');
+          }
+          return response.blob();
+        }).then(blob => {
+          this._worker.postMessage({
+            blob: blob,
+            url: src,
+            instanceIndex: instances.indexOf(this)
+          });
+        });
+      } else {
+        this._renderImage(src);
+      }
+    },
+
+    _renderImage(src) {
+      if (!this._ironImageLoaded) {
+        this.importHref(this.resolveUrl('../iron-image/iron-image.html'));
+        this._ironImageLoaded = true;
+      }
+
+      const renderImage = (deadline) => {
+        if (deadline.timeRemaining() < 32) {
+          return requestIdleCallback(renderImage);
+        }
+
+        const ironImage = document.createElement('iron-image');
+        ironImage.src = src;
+        ironImage.sizing = this.sizing;
+        ironImage.style.height = '100%';
+        ironImage.style.width = '100%';
+
+        Polymer.dom(this.root).appendChild(ironImage);
+        this._imageElement = ironImage;
+      };
+
+      requestIdleCallback(renderImage);
+    },
+
+    _renderCanvas(imageBitmap) {
+      const renderCanvas = (deadline) => {
+        if (deadline.timeRemaining() < 16) {
+          return requestIdleCallback(renderCanvas);
+        }
+
+        const rect = this.getBoundingClientRect();
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = rect.width;
+        canvas.height = rect.height;
+
+        Polymer.dom(this.root).appendChild(canvas);
+
+        switch (this.sizing) {
+          case 'cover':
+            this._drawImageFitted(ctx, imageBitmap);
+            break;
+          case 'contain':
+            this._drawImageScaled(ctx, imageBitmap);
+            break;
+          default:
+            this._drawImageFitted(ctx, imageBitmap, 0, 0, imageBitmap.width, imageBitmap.height);
+        }
+
+        this._imageElement = canvas;
+        this.fire('render');
+      };
+
+      requestIdleCallback(renderCanvas);
+    },
+
+    // Source: http://stackoverflow.com/a/23105310
+    _drawImageScaled(ctx, img) {
+      const canvas = ctx.canvas;
+      const hRatio = canvas.width / img.width;
+      const vRatio = canvas.height / img.height;
+      const ratio = Math.min (hRatio, vRatio);
+      const centerShift_x = (canvas.width - img.width * ratio) / 2;
+      const centerShift_y = (canvas.height - img.height * ratio) / 2;  
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0,0, img.width, img.height,
+        centerShift_x, centerShift_y, img.width * ratio, img.height * ratio);
+    },
+
+    // Source: http://stackoverflow.com/a/21961894
+    _drawImageFitted(ctx, img, x, y, w, h, offsetX, offsetY) {
+      if (arguments.length === 2) {
+        x = y = 0;
+        w = ctx.canvas.width;
+        h = ctx.canvas.height;
+      }
+
+      // default offset is center
+      offsetX = typeof offsetX === "number" ? offsetX : 0.5;
+      offsetY = typeof offsetY === "number" ? offsetY : 0.5;
+
+      // keep bounds [0.0, 1.0]
+      if (offsetX < 0) offsetX = 0;
+      if (offsetY < 0) offsetY = 0;
+      if (offsetX > 1) offsetX = 1;
+      if (offsetY > 1) offsetY = 1;
+
+      let iw = img.width,
+          ih = img.height,
+          r = Math.min(w / iw, h / ih),
+          nw = iw * r,   // new prop. width
+          nh = ih * r,   // new prop. height
+          cx, cy, cw, ch, ar = 1;
+
+      // decide which gap to fill    
+      if (nw < w) ar = w / nw;                             
+      if (Math.abs(ar - 1) < 1e-14 && nh < h) ar = h / nh;  // updated
+      nw *= ar;
+      nh *= ar;
+
+      // calc source rectangle
+      cw = iw / (nw / w);
+      ch = ih / (nh / h);
+
+      cx = (iw - cw) * offsetX;
+      cy = (ih - ch) * offsetY;
+
+      // make sure source rectangle is valid
+      if (cx < 0) cx = 0;
+      if (cy < 0) cy = 0;
+      if (cw > iw) cw = iw;
+      if (ch > ih) ch = ih;
+
+      // fill image in dest. rectangle
+      ctx.drawImage(img, cx, cy, cw, ch,  x, y, w, h);
+    }
+
+  });
+
+}());
+</script>
