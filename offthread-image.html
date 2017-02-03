@@ -29,11 +29,8 @@
 
   // Whether this element can do its magic or fallback to an image.
   const supported = typeof createImageBitmap !== 'undefined' && typeof fetch !== 'undefined';
-  let instances, worker;
-
-  if (supported) {
-    instances = [];
-  }
+  const instances = {};
+  let currentInstanceIndex = 0, worker;
 
   Polymer({
 
@@ -43,7 +40,8 @@
 
       src: {
         type: String,
-        reflectToAttribute: true
+        reflectToAttribute: true,
+        observer: '_srcChanged'
       },
 
       /**
@@ -57,14 +55,14 @@
         value: null
       },
 
-      _worker: {
-        type: Object,
+      _index: {
+        type: Number,
         value: _ => {
-          return worker || null;
+          return currentInstanceIndex++;
         }
       },
 
-      _imageElement: Object,
+      _element: Object,
 
       _ironImageLoaded: {
         type: Boolean,
@@ -73,31 +71,31 @@
 
     },
 
-    observers: [
-      '_srcChanged(src, isAttached)'
-    ],
-
     created() {
       // Initialize the worker just once.
-      if (supported && !worker) {
-        worker = new Worker(this.resolveUrl('offthread-image-worker.js'));
+      if (supported) {
+        if (!worker) {
+          worker = new Worker(this.resolveUrl('offthread-image-worker.js'));
 
-        worker.onmessage = function(event) {
-          instances[event.data.instanceIndex]._handleIncomingMessage(event.data);
-        };
+          worker.onmessage = function (event) {
+            const instance = instances[event.data.instanceIndex];
+            if (!instance.isAttached) {
+              delete instances[instance._index];
+            };
+            instance._handleIncomingMessage(event.data);
+          };
+        }
       }
     },
 
     attached() {
-      if (supported) {
-        instances.push(this);
+      if (!instances[this._index]) {
+        instances[this._index] = this;
       }
     },
 
     detached() {
-      if (supported) {
-        instances.splice(instances.indexOf(this), 1);
-      }
+      delete instances[this._index];
     },
 
     /**
@@ -107,20 +105,15 @@
       if (message.error) {
         throw new Error(message.error);
       }
-
-      if (message.imageBitmap) {
+      if (message.imageBitmap && this.isAttached) {
         this._renderCanvas(message.imageBitmap);
       }
     },
 
     _srcChanged(src) {
-      if (!src || !this.isAttached) {
+      if (!src) {
         return;
       }
-
-      if (this._imageElement) {
-        this._imageElement.remove();
-      }      
 
       if (supported) {
         fetch(src).then(response => {
@@ -129,10 +122,10 @@
           }
           return response.blob();
         }).then(blob => {
-          this._worker.postMessage({
+          worker.postMessage({
             blob: blob,
             url: src,
-            instanceIndex: instances.indexOf(this)
+            instanceIndex: this._index
           });
         });
       } else {
@@ -151,6 +144,10 @@
           return requestIdleCallback(renderImage);
         }
 
+        if (this._element) {
+          this._element.remove();
+        }
+
         const ironImage = document.createElement('iron-image');
         ironImage.src = src;
         ironImage.sizing = this.sizing;
@@ -158,7 +155,7 @@
         ironImage.style.width = '100%';
 
         Polymer.dom(this.root).appendChild(ironImage);
-        this._imageElement = ironImage;
+        this._element = ironImage;
       };
 
       requestIdleCallback(renderImage);
@@ -166,8 +163,12 @@
 
     _renderCanvas(imageBitmap) {
       const renderCanvas = (deadline) => {
-        if (deadline.timeRemaining() < 8) {
+        if (deadline.timeRemaining() < 0) {
           return requestIdleCallback(renderCanvas);
+        }
+
+        if (this._element) {
+          this._element.remove();
         }
 
         const rect = this.getBoundingClientRect();
@@ -190,7 +191,7 @@
             this._drawImageFitted(ctx, imageBitmap, 0, 0, imageBitmap.width, imageBitmap.height);
         }
 
-        this._imageElement = canvas;
+        this._element = canvas;
         this.fire('render');
       };
 
