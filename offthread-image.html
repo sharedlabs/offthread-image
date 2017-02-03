@@ -73,18 +73,16 @@
 
     created() {
       // Initialize the worker just once.
-      if (supported) {
-        if (!worker) {
-          worker = new Worker(this.resolveUrl('offthread-image-worker.js'));
+      if (supported && !worker) {
+        worker = new Worker(this.resolveUrl('offthread-image-worker.js'));
 
-          worker.onmessage = function (event) {
-            const instance = instances[event.data.instanceIndex];
-            if (!instance.isAttached) {
-              delete instances[instance._index];
-            };
-            instance._handleIncomingMessage(event.data);
+        worker.onmessage = function (event) {
+          const instance = instances[event.data.instanceIndex];
+          if (!instance.isAttached) {
+            delete instances[instance._index];
           };
-        }
+          instance._handleIncomingMessage(event.data);
+        };
       }
     },
 
