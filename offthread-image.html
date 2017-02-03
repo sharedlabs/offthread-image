@@ -147,7 +147,7 @@
       }
 
       const renderImage = (deadline) => {
-        if (deadline.timeRemaining() < 32) {
+        if (deadline.timeRemaining() < 16) {
           return requestIdleCallback(renderImage);
         }
 
@@ -166,7 +166,7 @@
 
     _renderCanvas(imageBitmap) {
       const renderCanvas = (deadline) => {
-        if (deadline.timeRemaining() < 16) {
+        if (deadline.timeRemaining() < 8) {
           return requestIdleCallback(renderCanvas);
         }
 
