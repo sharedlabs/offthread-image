@@ -28,9 +28,37 @@
   };
 
   // Whether this element can do its magic or fallback to an image.
-  const supported = typeof createImageBitmap !== 'undefined' && typeof fetch !== 'undefined';
-  const instances = {};
-  let currentInstanceIndex = 0, worker;
+  const canvasSupported = typeof createImageBitmap !== 'undefined' && typeof fetch !== 'undefined';
+  let instances = {};
+  let currentIndex = 0;
+  let worker;
+
+  /**
+   * Create the offthread-image-worker from the supplied
+   * resolved URL.
+   */
+  function createWorker(url) {
+    worker = new Worker(url);
+
+    worker.onmessage = function(event) {
+      const instance = instances[event.data.instanceIndex];
+
+      if (instance) {
+        instance._waitingWorker = false;
+        if (!instance.isAttached) {
+          delete instances[instance._index];
+        };
+
+        if (event.data.error) {
+          throw new Error(event.data.error);
+        }
+
+        if (event.data.imageBitmap) {
+          instance._imageBitmap = event.data.imageBitmap;
+        }
+      }
+    };
+  }
 
   Polymer({
 
@@ -38,6 +66,9 @@
 
     properties: {
 
+      /**
+       * The URL of the image.
+       */
       src: {
         type: String,
         reflectToAttribute: true,
@@ -58,68 +89,66 @@
       _index: {
         type: Number,
         value: _ => {
-          return currentInstanceIndex++;
+          return currentIndex++;
         }
       },
 
+      _imageBitmap: Object,
+
+      _ironImageLoaded: Boolean,
+
       _element: Object,
 
-      _ironImageLoaded: {
+      _waitingWorker: {
         type: Boolean,
         value: false
       }
 
     },
 
+    observers: [
+      '_imageBitmapChanged(_imageBitmap, isAttached)'
+    ],
+
     created() {
-      // Initialize the worker just once.
-      if (supported && !worker) {
-        worker = new Worker(this.resolveUrl('offthread-image-worker.js'));
-
-        worker.onmessage = function (event) {
-          const instance = instances[event.data.instanceIndex];
-          if (!instance.isAttached) {
-            delete instances[instance._index];
-          };
-          instance._handleIncomingMessage(event.data);
-        };
-      }
-    },
-
-    attached() {
-      if (!instances[this._index]) {
-        instances[this._index] = this;
+      if (canvasSupported && !worker) {
+        createWorker(this.resolveUrl('offthread-image-worker.js'));
       }
     },
 
     detached() {
-      delete instances[this._index];
-    },
-
-    /**
-     * Handle messages from the image worker.
-     */
-    _handleIncomingMessage(message) {
-      if (message.error) {
-        throw new Error(message.error);
-      }
-      if (message.imageBitmap && this.isAttached) {
-        this._renderCanvas(message.imageBitmap);
+      if (canvasSupported && !this._waitingWorker) {
+        delete instances[this._index];
       }
     },
 
+    // This needs to happend Attached
+    _imageBitmapChanged(_imageBitmap, isAttached) {
+      if (_imageBitmap && isAttached) {
+        requestAnimationFrame(_ => {
+          this._renderCanvas(_imageBitmap);
+        });
+      }
+    },
+
+    // This can happend detached
     _srcChanged(src) {
       if (!src) {
         return;
       }
 
-      if (supported) {
+      if (canvasSupported) {
+        instances[this._index] = this;
+      }
+
+      if (canvasSupported) {
         fetch(src).then(response => {
           if (!response) {
-            throw new Error('404. Not found');
+            throw new Error('Image not found: ' + src);
           }
           return response.blob();
         }).then(blob => {
+          this._waitingWorker = true;
           worker.postMessage({
             blob: blob,
             url: src,
@@ -129,34 +158,6 @@
       } else {
         this._renderImage(src);
       }
-    },
-
-    _renderImage(src) {
-      if (!this._ironImageLoaded) {
-        this.importHref(this.resolveUrl('../iron-image/iron-image.html'));
-        this._ironImageLoaded = true;
-      }
-
-      const renderImage = (deadline) => {
-        if (deadline.timeRemaining() < 16) {
-          return requestIdleCallback(renderImage);
-        }
-
-        if (this._element) {
-          this._element.remove();
-        }
-
-        const ironImage = document.createElement('iron-image');
-        ironImage.src = src;
-        ironImage.sizing = this.sizing;
-        ironImage.style.height = '100%';
-        ironImage.style.width = '100%';
-
-        Polymer.dom(this.root).appendChild(ironImage);
-        this._element = ironImage;
-      };
-
-      requestIdleCallback(renderImage);
     },
 
     _renderCanvas(imageBitmap) {
@@ -194,6 +195,34 @@
       };
 
       requestIdleCallback(renderCanvas);
+    },
+
+    _renderImage(src) {
+      if (!this._ironImageLoaded) {
+        this.importHref(this.resolveUrl('../iron-image/iron-image.html'));
+        this._ironImageLoaded = true;
+      }
+
+      const renderImage = (deadline) => {
+        if (deadline.timeRemaining() < 16) {
+          return requestIdleCallback(renderImage);
+        }
+
+        if (this._element) {
+          this._element.remove();
+        }
+
+        const ironImage = document.createElement('iron-image');
+        ironImage.src = src;
+        ironImage.sizing = this.sizing;
+        ironImage.style.height = '100%';
+        ironImage.style.width = '100%';
+
+        Polymer.dom(this.root).appendChild(ironImage);
+        this._element = ironImage;
+      };
+
+      requestIdleCallback(renderImage);
     },
 
     // Source: http://stackoverflow.com/a/23105310
