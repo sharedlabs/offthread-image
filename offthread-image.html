@@ -50,7 +50,7 @@
         };
 
         if (event.data.error) {
-          throw new Error(event.data.error);
+          instance.fire('error', {error: event.data.error});
         }
 
         if (event.data.imageBitmap) {
