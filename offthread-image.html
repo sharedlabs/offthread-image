@@ -1,4 +1,4 @@
-<link rel="import" href="../polymer/polymer.html">
+<link rel="import" href="../polymer/polymer-element.html">
 
 <!--
 `offthread-image`
@@ -14,280 +14,299 @@
     </style>
 
   </template>
-</dom-module>
 
-<script>
-(function() {
-  'use strict';
+  <script>
+    
+    (function() {
 
-  // requestIdleCallback polyfill
-  const requestIdleCallback = window.requestIdleCallback || function(callback) {
-    requestAnimationFrame(_ => {
-      callback({timeRemaining: _ => Infinity});
-    });
-  };
-
-  // Whether this element can do its magic or fallback to an image.
-  const canvasSupported = typeof createImageBitmap !== 'undefined' && typeof fetch !== 'undefined';
-  let instances = {};
-  let currentIndex = 0;
-  let worker;
-
-  /**
-   * Create the offthread-image-worker from the supplied
-   * resolved URL.
-   */
-  function createWorker(url) {
-    worker = new Worker(url);
-
-    worker.onmessage = function(event) {
-      const instance = instances[event.data.instanceIndex];
-
-      if (instance) {
-        instance._waitingWorker = false;
-        if (!instance.isAttached) {
-          delete instances[instance._index];
-        };
-
-        if (event.data.error) {
-          instance.fire('error', {error: event.data.error});
-        }
-
-        if (event.data.imageBitmap) {
-          instance._imageBitmap = event.data.imageBitmap;
-        }
-      }
-    };
-  }
-
-  Polymer({
-
-    is: 'offthread-image',
-
-    properties: {
-
-      /**
-       * The URL of the image.
-       */
-      src: {
-        type: String,
-        reflectToAttribute: true,
-        observer: '_srcChanged'
-      },
-
-      /**
-       * Sets a sizing option for the image.  Valid values are `contain` (full
-       * aspect ratio of the image is contained within the element and
-       * letterboxed) or `cover` (image is cropped in order to fully cover the
-       * bounds of the element), or `null` (default: image takes natural size).
-       */
-      sizing: {
-        type: String,
-        value: null
-      },
-
-      _index: {
-        type: Number,
-        value: _ => {
-          return currentIndex++;
-        }
-      },
-
-      _imageBitmap: Object,
-
-      _ironImageLoaded: Boolean,
-
-      _element: Object,
-
-      _waitingWorker: {
-        type: Boolean,
-        value: false
-      }
-
-    },
-
-    observers: [
-      '_imageBitmapChanged(_imageBitmap, isAttached)'
-    ],
-
-    created() {
-      if (canvasSupported && !worker) {
-        createWorker(this.resolveUrl('offthread-image-worker.js'));
-      }
-    },
-
-    detached() {
-      if (canvasSupported && !this._waitingWorker) {
-        delete instances[this._index];
-      }
-    },
-
-    // This needs to happend Attached
-    _imageBitmapChanged(_imageBitmap, isAttached) {
-      if (_imageBitmap && isAttached) {
+      // requestIdleCallback polyfill
+      const requestIdleCallback = window.requestIdleCallback || function(callback) {
         requestAnimationFrame(_ => {
-          this._renderCanvas(_imageBitmap);
+          callback({timeRemaining: _ => Infinity});
         });
-      }
-    },
+      };
 
-    // This can happend detached
-    _srcChanged(src) {
-      if (!src) {
-        return;
-      }
+      // Whether this element can do its magic or fallback to an image.
+      const canvasSupported = typeof createImageBitmap !== 'undefined' && typeof fetch !== 'undefined';
+      let instances = {};
+      let currentIndex = 0;
+      let worker;
 
-      if (canvasSupported) {
-        instances[this._index] = this;
-      }
+      /**
+      * Create the offthread-image-worker from the supplied
+      * resolved URL.
+      */
+      function createWorker(url) {
+        worker = new Worker(url);
 
-      if (canvasSupported) {
-        fetch(src).then(response => {
-          if (!response) {
-            throw new Error('Image not found: ' + src);
+        worker.onmessage = function(event) {
+          const instance = instances[event.data.instanceIndex];
+
+          if (instance) {
+            instance._waitingWorker = false;
+            if (!instance.isConnected) {
+              delete instances[instance._index];
+            };
+
+            if (event.data.error) {
+              instance.dispatchEvent(new CustomEvent('error', {
+                detail: {
+                  error: event.data.error
+                }
+              }));
+            }
+
+            if (event.data.imageBitmap) {
+              instance._imageBitmap = event.data.imageBitmap;
+            }
           }
-          return response.blob();
-        }).then(blob => {
-          this._waitingWorker = true;
-          worker.postMessage({
-            blob: blob,
-            url: src,
-            instanceIndex: this._index
-          });
-        });
-      } else {
-        this._renderImage(src);
-      }
-    },
-
-    _renderCanvas(imageBitmap) {
-      const renderCanvas = (deadline) => {
-        if (deadline.timeRemaining() < 0) {
-          return requestIdleCallback(renderCanvas);
-        }
-
-        if (this._element) {
-          this._element.remove();
-        }
-
-        const rect = this.getBoundingClientRect();
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-
-        canvas.width = rect.width;
-        canvas.height = rect.height;
-
-        Polymer.dom(this.root).appendChild(canvas);
-
-        switch (this.sizing) {
-          case 'cover':
-            this._drawImageFitted(ctx, imageBitmap);
-            break;
-          case 'contain':
-            this._drawImageScaled(ctx, imageBitmap);
-            break;
-          default:
-            this._drawImageFitted(ctx, imageBitmap, 0, 0, imageBitmap.width, imageBitmap.height);
-        }
-
-        this._element = canvas;
-        this.fire('render');
-      };
-
-      requestIdleCallback(renderCanvas);
-    },
-
-    _renderImage(src) {
-      if (!this._ironImageLoaded) {
-        this.importHref(this.resolveUrl('../iron-image/iron-image.html'));
-        this._ironImageLoaded = true;
+        };
       }
 
-      const renderImage = (deadline) => {
-        if (deadline.timeRemaining() < 16) {
-          return requestIdleCallback(renderImage);
+      class OffthreadImage extends Polymer.Element {
+
+        static get is() {return 'offthread-image';}
+
+        static get config() {
+          return {
+            properties: {
+              /**
+              * The URL of the image.
+              */
+              src: {
+                type: String,
+                reflectToAttribute: true,
+                observer: '_srcChanged'
+              },
+
+              /**
+              * Sets a sizing option for the image.  Valid values are `contain` (full
+              * aspect ratio of the image is contained within the element and
+              * letterboxed) or `cover` (image is cropped in order to fully cover the
+              * bounds of the element), or `null` (default: image takes natural size).
+              */
+              sizing: {
+                type: String,
+                value: null
+              },
+
+              _index: {
+                type: Number,
+                value: _ => {
+                  return currentIndex++;
+                }
+              },
+
+              _imageBitmap: {
+                type: Object,
+                observer: '_imageBitmapChanged'
+              },
+
+              _ironImageLoaded: Boolean,
+
+              _element: Object,
+
+              _waitingWorker: {
+                type: Boolean,
+                value: false
+              }
+            }
+          };
         }
 
-        if (this._element) {
-          this._element.remove();
+        constructor() {
+          super();
+
+          if (canvasSupported && !worker) {
+            createWorker(this.resolveUrl('offthread-image-worker.js'));
+          }
         }
 
-        const ironImage = document.createElement('iron-image');
-        ironImage.src = src;
-        ironImage.sizing = this.sizing;
-        ironImage.style.height = '100%';
-        ironImage.style.width = '100%';
+        connectedCallback() {
+          super.connectedCallback();
 
-        Polymer.dom(this.root).appendChild(ironImage);
-        this._element = ironImage;
-      };
+          if (this._imageBitmap) {
+            this._imageBitmapChanged(this._imageBitmap);
+          }
+        }
 
-      requestIdleCallback(renderImage);
-    },
+        disconnectedCallback() {
+          super.disconnectedCallback();
 
-    // Source: http://stackoverflow.com/a/23105310
-    _drawImageScaled(ctx, img) {
-      const canvas = ctx.canvas;
-      const hRatio = canvas.width / img.width;
-      const vRatio = canvas.height / img.height;
-      const ratio = Math.min (hRatio, vRatio);
-      const centerShift_x = (canvas.width - img.width * ratio) / 2;
-      const centerShift_y = (canvas.height - img.height * ratio) / 2;  
+          if (canvasSupported && !this._waitingWorker) {
+            delete instances[this._index];
+          }
+        }
 
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(img, 0,0, img.width, img.height,
-        centerShift_x, centerShift_y, img.width * ratio, img.height * ratio);
-    },
+        // This needs to happend Attached
+        _imageBitmapChanged(_imageBitmap) {
+          if (_imageBitmap && this.isConnected) {
+            requestAnimationFrame(_ => {
+              this._renderCanvas(_imageBitmap);
+            });
+          }
+        }
 
-    // Source: http://stackoverflow.com/a/21961894
-    _drawImageFitted(ctx, img, x, y, w, h, offsetX, offsetY) {
-      if (arguments.length === 2) {
-        x = y = 0;
-        w = ctx.canvas.width;
-        h = ctx.canvas.height;
+        // This can happend detached
+        _srcChanged(src) {
+          if (!src) {
+            return;
+          }
+
+          if (canvasSupported) {
+            instances[this._index] = this;
+          }
+
+          if (canvasSupported) {
+            fetch(src).then(response => {
+              if (!response) {
+                throw new Error('Image not found: ' + src);
+              }
+              return response.blob();
+            }).then(blob => {
+              this._waitingWorker = true;
+              worker.postMessage({
+                blob: blob,
+                url: src,
+                instanceIndex: this._index
+              });
+            });
+          } else {
+            this._renderImage(src);
+          }
+        }
+
+        _renderCanvas(imageBitmap) {
+          const renderCanvas = (deadline) => {
+            if (deadline.timeRemaining() < 0) {
+              return requestIdleCallback(renderCanvas);
+            }
+
+            if (this._element) {
+              this._element.remove();
+            }
+
+            const rect = this.getBoundingClientRect();
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            canvas.width = rect.width;
+            canvas.height = rect.height;
+
+            this.shadowRoot.appendChild(canvas);
+
+            switch (this.sizing) {
+              case 'cover':
+                this._drawImageFitted(ctx, imageBitmap);
+                break;
+              case 'contain':
+                this._drawImageScaled(ctx, imageBitmap);
+                break;
+              default:
+                this._drawImageFitted(ctx, imageBitmap, 0, 0, imageBitmap.width, imageBitmap.height);
+            }
+
+            this._element = canvas;
+            this.dispatchEvent(new CustomEvent('render'));
+          };
+
+          requestIdleCallback(renderCanvas);
+        }
+
+        _renderImage(src) {
+          if (!this._ironImageLoaded) {
+            this.importHref(this.resolveUrl('../iron-image/iron-image.html'));
+            this._ironImageLoaded = true;
+          }
+
+          const renderImage = (deadline) => {
+            if (deadline.timeRemaining() < 16) {
+              return requestIdleCallback(renderImage);
+            }
+
+            if (this._element) {
+              this._element.remove();
+            }
+
+            const ironImage = document.createElement('iron-image');
+            ironImage.src = src;
+            ironImage.sizing = this.sizing;
+            ironImage.style.height = '100%';
+            ironImage.style.width = '100%';
+
+            this.shadowRoot.appendChild(ironImage);
+            this._element = ironImage;
+          };
+
+          requestIdleCallback(renderImage);
+        }
+
+        // Source: http://stackoverflow.com/a/23105310
+        _drawImageScaled(ctx, img) {
+          const canvas = ctx.canvas;
+          const hRatio = canvas.width / img.width;
+          const vRatio = canvas.height / img.height;
+          const ratio = Math.min (hRatio, vRatio);
+          const centerShift_x = (canvas.width - img.width * ratio) / 2;
+          const centerShift_y = (canvas.height - img.height * ratio) / 2;  
+
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0,0, img.width, img.height,
+            centerShift_x, centerShift_y, img.width * ratio, img.height * ratio);
+        }
+
+        // Source: http://stackoverflow.com/a/21961894
+        _drawImageFitted(ctx, img, x, y, w, h, offsetX, offsetY) {
+          if (arguments.length === 2) {
+            x = y = 0;
+            w = ctx.canvas.width;
+            h = ctx.canvas.height;
+          }
+
+          // default offset is center
+          offsetX = typeof offsetX === "number" ? offsetX : 0.5;
+          offsetY = typeof offsetY === "number" ? offsetY : 0.5;
+
+          // keep bounds [0.0, 1.0]
+          if (offsetX < 0) offsetX = 0;
+          if (offsetY < 0) offsetY = 0;
+          if (offsetX > 1) offsetX = 1;
+          if (offsetY > 1) offsetY = 1;
+
+          let iw = img.width,
+              ih = img.height,
+              r = Math.min(w / iw, h / ih),
+              nw = iw * r,   // new prop. width
+              nh = ih * r,   // new prop. height
+              cx, cy, cw, ch, ar = 1;
+
+          // decide which gap to fill    
+          if (nw < w) ar = w / nw;                             
+          if (Math.abs(ar - 1) < 1e-14 && nh < h) ar = h / nh;  // updated
+          nw *= ar;
+          nh *= ar;
+
+          // calc source rectangle
+          cw = iw / (nw / w);
+          ch = ih / (nh / h);
+
+          cx = (iw - cw) * offsetX;
+          cy = (ih - ch) * offsetY;
+
+          // make sure source rectangle is valid
+          if (cx < 0) cx = 0;
+          if (cy < 0) cy = 0;
+          if (cw > iw) cw = iw;
+          if (ch > ih) ch = ih;
+
+          // fill image in dest. rectangle
+          ctx.drawImage(img, cx, cy, cw, ch,  x, y, w, h);
+        }
+
       }
 
-      // default offset is center
-      offsetX = typeof offsetX === "number" ? offsetX : 0.5;
-      offsetY = typeof offsetY === "number" ? offsetY : 0.5;
+      customElements.define(OffthreadImage.is, OffthreadImage);
 
-      // keep bounds [0.0, 1.0]
-      if (offsetX < 0) offsetX = 0;
-      if (offsetY < 0) offsetY = 0;
-      if (offsetX > 1) offsetX = 1;
-      if (offsetY > 1) offsetY = 1;
-
-      let iw = img.width,
-          ih = img.height,
-          r = Math.min(w / iw, h / ih),
-          nw = iw * r,   // new prop. width
-          nh = ih * r,   // new prop. height
-          cx, cy, cw, ch, ar = 1;
-
-      // decide which gap to fill    
-      if (nw < w) ar = w / nw;                             
-      if (Math.abs(ar - 1) < 1e-14 && nh < h) ar = h / nh;  // updated
-      nw *= ar;
-      nh *= ar;
-
-      // calc source rectangle
-      cw = iw / (nw / w);
-      ch = ih / (nh / h);
-
-      cx = (iw - cw) * offsetX;
-      cy = (ih - ch) * offsetY;
-
-      // make sure source rectangle is valid
-      if (cx < 0) cx = 0;
-      if (cy < 0) cy = 0;
-      if (cw > iw) cw = iw;
-      if (ch > ih) ch = ih;
-
-      // fill image in dest. rectangle
-      ctx.drawImage(img, cx, cy, cw, ch,  x, y, w, h);
-    }
-
-  });
-
-}());
-</script>
+    }());
+  </script>
+</dom-module>
