@@ -67,50 +67,50 @@
 
         static get is() {return 'offthread-image';}
 
-        static get config() {
+        static get properties() {
           return {
-            properties: {
-              /**
-              * The URL of the image.
-              */
-              src: {
-                type: String,
-                reflectToAttribute: true,
-                observer: '_srcChanged'
-              },
 
-              /**
-              * Sets a sizing option for the image.  Valid values are `contain` (full
-              * aspect ratio of the image is contained within the element and
-              * letterboxed) or `cover` (image is cropped in order to fully cover the
-              * bounds of the element), or `null` (default: image takes natural size).
-              */
-              sizing: {
-                type: String,
-                value: null
-              },
+            /**
+            * The URL of the image.
+            */
+            src: {
+              type: String,
+              reflectToAttribute: true,
+              observer: '_srcChanged'
+            },
 
-              _index: {
-                type: Number,
-                value: _ => {
-                  return currentIndex++;
-                }
-              },
+            /**
+            * Sets a sizing option for the image.  Valid values are `contain` (full
+            * aspect ratio of the image is contained within the element and
+            * letterboxed) or `cover` (image is cropped in order to fully cover the
+            * bounds of the element), or `null` (default: image takes natural size).
+            */
+            sizing: {
+              type: String,
+              value: null
+            },
 
-              _imageBitmap: {
-                type: Object,
-                observer: '_imageBitmapChanged'
-              },
-
-              _ironImageLoaded: Boolean,
-
-              _element: Object,
-
-              _waitingWorker: {
-                type: Boolean,
-                value: false
+            _index: {
+              type: Number,
+              value: _ => {
+                return currentIndex++;
               }
+            },
+
+            _imageBitmap: {
+              type: Object,
+              observer: '_imageBitmapChanged'
+            },
+
+            _ironImageLoaded: Boolean,
+
+            _element: Object,
+
+            _waitingWorker: {
+              type: Boolean,
+              value: false
             }
+
           };
         }
 
