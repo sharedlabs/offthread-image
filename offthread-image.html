@@ -11,12 +11,29 @@
       :host {
         display: inline-block;
       }
+
+      .loading {
+        display: flex;
+        height: 100%;
+        justify-content: center;
+        align-items: center;
+      }
+
     </style>
+
+    <dom-if if="[[displayLoading]]">
+      <template>
+        <div style="width: 100%; height: 100%;" hidden$="[[_element]]">
+          <div class="loading">...</div>
+        </div>
+      </template>
+    </dom-if>
 
   </template>
 
+
   <script>
-    
+
     (function() {
 
       // requestIdleCallback polyfill
@@ -88,6 +105,11 @@
             sizing: {
               type: String,
               value: null
+            },
+
+            displayLoading: {
+              type: Boolean,
+              value: false,
             },
 
             _index: {
