@@ -69,7 +69,8 @@
               instance.dispatchEvent(new CustomEvent('error', {
                 detail: {
                   error: event.data.error
-                }
+                },
+                composed: true,
               }));
             }
 
@@ -229,7 +230,7 @@
             }
 
             this._element = canvas;
-            this.dispatchEvent(new CustomEvent('render'));
+            this.dispatchEvent(new CustomEvent('render', {composed: true}));
           };
 
           requestIdleCallback(renderCanvas);
@@ -237,7 +238,7 @@
 
         _renderImage(src) {
           if (!this._ironImageLoaded) {
-            this.importHref(this.resolveUrl('../iron-image/iron-image.html'));
+            Polymer.Base.importHref(this.resolveUrl('../iron-image/iron-image.html'));
             this._ironImageLoaded = true;
           }
 
@@ -251,6 +252,8 @@
             }
 
             const ironImage = document.createElement('iron-image');
+            const notify = _ => this.dispatchEvent(new CustomEvent('render', {composed: true}));
+            ironImage.addEventListener('loaded-changed', notify);
             ironImage.src = src;
             ironImage.sizing = this.sizing;
             ironImage.style.height = '100%';
