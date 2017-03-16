@@ -3,7 +3,7 @@
 <!--
 `offthread-image`
 
-@demo demo/index.html 
+@demo demo/index.html
 -->
 <dom-module id="offthread-image">
   <template>
@@ -11,24 +11,7 @@
       :host {
         display: inline-block;
       }
-
-      .loading {
-        display: flex;
-        height: 100%;
-        justify-content: center;
-        align-items: center;
-      }
-
     </style>
-
-    <dom-if if="[[displayLoading]]">
-      <template>
-        <div style="width: 100%; height: 100%;" hidden$="[[_element]]">
-          <div class="loading">...</div>
-        </div>
-      </template>
-    </dom-if>
-
   </template>
 
 
@@ -45,8 +28,6 @@
 
       // Whether this element can do its magic or fallback to an image.
       const canvasSupported = typeof createImageBitmap !== 'undefined' && typeof fetch !== 'undefined';
-      let instances = {};
-      let currentIndex = 0;
       let worker;
 
       /**
@@ -55,28 +36,23 @@
       */
       function createWorker(url) {
         worker = new Worker(url);
-
         worker.onmessage = function(event) {
-          const instance = instances[event.data.instanceIndex];
-
-          if (instance) {
-            instance._waitingWorker = false;
-            if (!instance.isConnected) {
-              delete instances[instance._index];
-            };
-
-            if (event.data.error) {
-              instance.dispatchEvent(new CustomEvent('error', {
-                detail: {
-                  error: event.data.error
-                },
-                composed: true,
-              }));
-            }
-
-            if (event.data.imageBitmap) {
-              instance._imageBitmap = event.data.imageBitmap;
-            }
+          if (event.data.error) {
+            document.dispatchEvent(new CustomEvent('offthread-image-worker-error', {
+              detail: {
+                error: event.data.error,
+                url: event.data.url,
+              },
+              composed: true,
+            }));
+          } else if (event.data.imageBitmap) {
+            document.dispatchEvent(new CustomEvent('offthread-image-worker-message', {
+              detail: {
+                imageBitmap: event.data.imageBitmap,
+                url: event.data.url,
+              },
+              composed: true,
+            }));
           }
         };
       }
@@ -108,16 +84,9 @@
               value: null
             },
 
-            displayLoading: {
+            fadein: {
               type: Boolean,
-              value: false,
-            },
-
-            _index: {
-              type: Number,
-              value: _ => {
-                return currentIndex++;
-              }
+              value: true,
             },
 
             _imageBitmap: Object,
@@ -126,14 +95,7 @@
 
             _element: Object,
 
-            _waitingWorker: {
-              type: Boolean,
-              value: false
-            },
-
-            _isAttached: {
-              type: Boolean,
-            },
+            _isAttached: Boolean,
 
           };
         }
@@ -146,6 +108,7 @@
 
         constructor() {
           super();
+          this._onWorkerMessageReceived = this._onWorkerMessageReceived.bind(this);
 
           if (canvasSupported && !worker) {
             createWorker(this.resolveUrl('offthread-image-worker.js'));
@@ -154,33 +117,46 @@
 
         connectedCallback() {
           super.connectedCallback();
+          document.addEventListener('offthread-image-worker-message',
+            this._onWorkerMessageReceived);
           this._isAttached = true;
         }
 
         disconnectedCallback() {
-          super.disconnectedCallback();
           this._isAttached = false;
+          document.removeEventListener('offthread-image-worker-message',
+            this._onWorkerMessageReceived);
+          super.disconnectedCallback();
+        }
 
-          if (canvasSupported && !this._waitingWorker) {
-            delete instances[this._index];
+        /**
+         * When a message is received from the worker, check if the url
+         * bitmap is for our src first and update instance bitmap
+         */
+        _onWorkerMessageReceived(event) {
+          const url = event.detail.url;
+          if (url === this.src) {
+            this._imageBitmap = event.detail.imageBitmap;
           }
         }
 
-        // This needs to happend Attached
+        /**
+         * This needs to happend Attached
+         */
         _imageBitmapChanged(imageBitmap, isAttached) {
           if (imageBitmap && isAttached) {
-            this._renderCanvas(imageBitmap);
+            Polymer.RenderStatus.afterNextRender(null, _ => {
+              this._renderCanvas(imageBitmap);
+            });
           }
         }
 
-        // This can happend detached
+        /**
+         * This can happend detached
+         */
         _srcChanged(src) {
           if (!src) {
             return;
-          }
-
-          if (canvasSupported) {
-            instances[this._index] = this;
           }
 
           if (canvasSupported) {
@@ -190,11 +166,9 @@
               }
               return response.blob();
             }).then(blob => {
-              this._waitingWorker = true;
               worker.postMessage({
                 blob: blob,
                 url: src,
-                instanceIndex: this._index
               });
             });
           } else {
@@ -219,6 +193,9 @@
             canvas.width = rect.width;
             canvas.height = rect.height;
 
+            if (this.fadein) {
+              this.style.opacity = 0;
+            }
             this.shadowRoot.appendChild(canvas);
 
             switch (this.sizing) {
@@ -230,6 +207,16 @@
                 break;
               default:
                 this._drawImageFitted(ctx, imageBitmap, 0, 0, imageBitmap.width, imageBitmap.height);
+            }
+
+            if (this.fadein) {
+              const animation = this.animate([{
+                  opacity: '0',
+                }, {
+                  opacity:'1',
+                }
+              ], {duration: 100});
+              animation.onfinish = _ => this.style.opacity = 1;
             }
 
             this._element = canvas;
@@ -276,7 +263,7 @@
           const vRatio = canvas.height / img.height;
           const ratio = Math.min (hRatio, vRatio);
           const centerShift_x = (canvas.width - img.width * ratio) / 2;
-          const centerShift_y = (canvas.height - img.height * ratio) / 2;  
+          const centerShift_y = (canvas.height - img.height * ratio) / 2;
 
           ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0,0, img.width, img.height,
@@ -308,8 +295,8 @@
               nh = ih * r,   // new prop. height
               cx, cy, cw, ch, ar = 1;
 
-          // decide which gap to fill    
-          if (nw < w) ar = w / nw;                             
+          // decide which gap to fill
+          if (nw < w) ar = w / nw;
           if (Math.abs(ar - 1) < 1e-14 && nh < h) ar = h / nh;  // updated
           nw *= ar;
           nh *= ar;
@@ -328,7 +315,7 @@
           if (ch > ih) ch = ih;
 
           // fill image in dest. rectangle
-          ctx.drawImage(img, cx, cy, cw, ch,  x, y, w, h);
+          ctx.drawImage(img, cx, cy, cw, ch, x, y, w, h);
         }
 
       }
