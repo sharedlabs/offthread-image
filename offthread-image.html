@@ -120,10 +120,7 @@
               }
             },
 
-            _imageBitmap: {
-              type: Object,
-              observer: '_imageBitmapChanged'
-            },
+            _imageBitmap: Object,
 
             _ironImageLoaded: Boolean,
 
@@ -132,9 +129,19 @@
             _waitingWorker: {
               type: Boolean,
               value: false
-            }
+            },
+
+            _isAttached: {
+              type: Boolean,
+            },
 
           };
+        }
+
+        static get observers() {
+          return [
+            '_imageBitmapChanged(_imageBitmap, _isAttached)'
+          ];
         }
 
         constructor() {
@@ -147,14 +154,12 @@
 
         connectedCallback() {
           super.connectedCallback();
-
-          if (this._imageBitmap) {
-            this._imageBitmapChanged(this._imageBitmap);
-          }
+          this._isAttached = true;
         }
 
         disconnectedCallback() {
           super.disconnectedCallback();
+          this._isAttached = false;
 
           if (canvasSupported && !this._waitingWorker) {
             delete instances[this._index];
@@ -162,11 +167,9 @@
         }
 
         // This needs to happend Attached
-        _imageBitmapChanged(_imageBitmap) {
-          if (_imageBitmap && this.isConnected) {
-            requestAnimationFrame(_ => {
-              this._renderCanvas(_imageBitmap);
-            });
+        _imageBitmapChanged(imageBitmap, isAttached) {
+          if (imageBitmap && isAttached) {
+            this._renderCanvas(imageBitmap);
           }
         }
 
