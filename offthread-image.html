@@ -161,7 +161,16 @@
 
           if (canvasSupported) {
             fetch(src).then(response => {
-              if (!response) {
+              if (!response.ok) {
+                this.dispatchEvent(new CustomEvent('error', {
+                  composed: true,
+                  detail: {
+                    error: {
+                      status: response.status,
+                      text: response.statusText,
+                    }
+                  },
+                }));
                 throw new Error('Image not found: ' + src);
               }
               return response.blob();
